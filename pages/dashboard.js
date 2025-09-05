@@ -1,117 +1,124 @@
-import React, { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
-const MessageList = dynamic(() => import('../components/MessageList'), { ssr: false });
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 export default function Dashboard() {
-  const [vault, setVault] = useState(null);
-  const [adminToken, setAdminToken] = useState(null);
+  const router = useRouter();
+  const { userId } = router.query;
+
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [usernameInput, setUsernameInput] = useState('');
+  const [content, setContent] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [chunks, setChunks] = useState([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('vault');
-    if (saved) {
-      const v = JSON.parse(saved);
-      setVault(v);
-      setAdminToken(v.adminToken);
-      fetchMessages(v, v.adminToken);
-    }
+    fetch('/api/messages')
+      .then((res) => res.json())
+      .then(setMessages);
   }, []);
 
-  async function createVault() {
-    if (!usernameInput || usernameInput.trim() === '') return alert('enter username');
-    const res = await fetch('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username: usernameInput }) });
-    if (!res.ok) return alert('Failed to create vault');
-    const json = await res.json();
-    setVault(json);
-    setAdminToken(json.adminToken);
-    localStorage.setItem('vault', JSON.stringify(json));
-    setUsernameInput('');
-    fetchMessages(json, json.adminToken);
-  }
+  const handleSendMessage = async () => {
+    if (!content) return alert('Enter a message');
+    const res = await fetch('/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, userId })
+    });
+    const message = await res.json();
+    setMessages([message, ...messages]);
+    setContent('');
+  };
 
-  async function fetchMessages(v = vault, token = adminToken) {
-    if (!v || !token) return;
-    setLoading(true);
-    const res = await fetch(`/api/messages?userLink=${encodeURIComponent(v.userLink)}&adminToken=${encodeURIComponent(token)}`);
-    if (!res.ok) {
-      setMessages([]);
-      setLoading(false);
-      return;
+  // 🔴 Start screen recording
+  const startRecording = async (textToRead) => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+
+      const recorder = new MediaRecorder(stream);
+      setMediaRecorder(recorder);
+      setChunks([]);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          setChunks((prev) => [...prev, event.data]);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+
+        // Download the screen recording automatically
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'voicevault-share.webm';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      recorder.start();
+      setRecording(true);
+
+      // Read the note aloud while recording
+      if (textToRead) {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        speechSynthesis.speak(utterance);
+      }
+
+      // Stop after 10 seconds
+      setTimeout(() => {
+        recorder.stop();
+        setRecording(false);
+      }, 10000);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      alert('Screen recording failed.');
     }
-    const list = await res.json();
-    setMessages(list);
-    setLoading(false);
-  }
-
-  async function handleDelete(id) {
-    if (!vault) return;
-    const ok = confirm('Delete this message?');
-    if (!ok) return;
-    const res = await fetch(`/api/messages/${encodeURIComponent(id)}?adminToken=${encodeURIComponent(adminToken)}`, { method: 'DELETE' });
-    if (res.ok) fetchMessages();
-    else alert('Failed to delete');
-  }
-
-  function copyLink() {
-    if (vault) {
-      navigator.clipboard.writeText(vault.userLink);
-      alert('Link copied to clipboard');
-    }
-  }
-
-  function clearLocal() {
-    localStorage.removeItem('vault');
-    setVault(null);
-    setMessages([]);
-    setAdminToken(null);
-  }
+  };
 
   return (
-    <div className="container">
-      <div className="header">
-        <div className="logo">🎤 VoiceVault — Dashboard</div>
-        <div className="subtitle">Manage your Vault, view messages, and share</div>
-      </div>
+    <div style={styles.container}>
+      <h1 style={styles.title}>📋 Dashboard</h1>
 
-      {!vault ? (
-        <div className="glass">
-          <h3>Create your Vault</h3>
-          <div className="row" style={{marginTop:8}}>
-            <input className="input" placeholder="username (display only)" value={usernameInput} onChange={(e)=>setUsernameInput(e.target.value)} />
-            <button className="btn btn-primary" onClick={createVault}>Create Vault</button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="glass row" style={{justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>Vault: <span className="small">{vault.userLink}</span></div>
-              <div className="small">Owner token stored locally for management</div>
-            </div>
-            <div style={{textAlign:'right'}}>
-              <button className="btn btn-ghost" onClick={copyLink}>Copy Link</button>
-              <button className="btn btn-ghost" onClick={() => { navigator.clipboard.writeText(vault.adminToken); alert('Admin token copied (keep private)'); }}>Copy Admin Token</button>
-              <button className="btn btn-ghost" onClick={clearLocal}>Clear Local</button>
-              <button className="btn btn-primary" onClick={() => fetchMessages()}>Refresh</button>
-            </div>
-          </div>
+      <textarea
+        placeholder="Type your anonymous voice note..."
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        style={styles.textarea}
+      />
+      <button onClick={handleSendMessage} style={styles.button}>
+        Share Note
+      </button>
 
-          <div className="glass">
-            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <div>
-                <span className="stat">Messages: {messages.length}</span>
-              </div>
-              <div className="small">Vault created: {new Date(vault.createdAt).toLocaleString()}</div>
-            </div>
-
-            <div style={{marginTop:12}}>
-              {loading ? <div className="small">Loading messages…</div> : <MessageList messages={messages} onDelete={handleDelete} adminToken={adminToken} />}
-            </div>
-          </div>
-        </>
-      )}
+      <h2 style={{ marginTop: '2rem' }}>All Messages</h2>
+      <ul>
+        {messages.map((m) => (
+          <li key={m.id} style={styles.messageItem}>
+            <strong>{m.content}</strong> <br />
+            <small>Posted {new Date(m.createdAt).toLocaleString()}</small>
+            <br />
+            <button
+              onClick={() => startRecording(m.content)}
+              style={styles.shareButton}
+              disabled={recording}
+            >
+              {recording ? 'Recording...' : '📹 Share Voice Note'}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
+
+const styles = {
+  container: { maxWidth: 600, margin: '0 auto', padding: '2rem' },
+  title: { fontSize: '2rem', marginBottom: '1rem' },
+  textarea: { width: '100%', height: '100px', marginBottom: '1rem' },
+  button: { padding: '0.5rem 1rem', background: 'black', color: 'white', border: 'none' },
+  messageItem: { marginBottom: '1.5rem', padding: '1rem', border: '1px solid #ddd', borderRadius: '6px' },
+  shareButton: { marginTop: '0.5rem', padding: '0.4rem 0.8rem', background: 'blue', color: 'white', border: 'none' }
+};
