@@ -1,9 +1,6 @@
-/** next.config.js */
-module.exports = {
-  reactStrictMode: true,
-  api: {
-    bodyParser: {
-      sizeLimit: '20mb' // allow larger audio uploads encoded as base64
-    }
-  }
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true
 };
+
+module.exports = nextConfig;
