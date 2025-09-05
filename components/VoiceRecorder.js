@@ -1,45 +1,41 @@
+// components/VoiceRecorder.js
 import React, { useRef, useState } from 'react';
 
-// convert blob to base64 string (without data: prefix)
+// convert blob to base64 (no data: prefix)
 function blobToBase64(blob) {
   return new Promise((res, rej) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const data = reader.result.split(',')[1];
-      res(data);
-    };
+    reader.onload = () => res(reader.result.split(',')[1]);
     reader.onerror = rej;
     reader.readAsDataURL(blob);
   });
 }
 
-// anonymize: simple offline pitch shift (client-side)
+// simple anonymization: offline pitch shift via OfflineAudioContext
 async function anonymizeBlob(blob, pitch = 0.85) {
   try {
     const arrayBuffer = await blob.arrayBuffer();
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+    const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await decodeCtx.decodeAudioData(arrayBuffer);
     const offline = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
-      decoded.numberOfChannels, decoded.length, decoded.sampleRate
+      decoded.numberOfChannels, Math.floor(decoded.length / pitch), Math.round(decoded.sampleRate * 1)
     );
     const src = offline.createBufferSource();
     src.buffer = decoded;
     src.playbackRate.value = pitch;
-    const gain = offline.createGain();
-    src.connect(gain);
-    gain.connect(offline.destination);
+    src.connect(offline.destination);
     src.start(0);
     const rendered = await offline.startRendering();
-    // convert rendered AudioBuffer to WAV ArrayBuffer
+
+    // convert rendered buffer to WAV arrayBuffer
     const wav = audioBufferToWav(rendered);
     return new Blob([wav], { type: 'audio/wav' });
   } catch (err) {
-    console.warn('anonymization failed, returning original', err);
+    console.warn('anonymization failed, sending original', err);
     return blob;
   }
 }
 
-// from earlier: convert AudioBuffer to WAV ArrayBuffer
 function audioBufferToWav(buffer) {
   const numOfChan = buffer.numberOfChannels;
   const length = buffer.length * numOfChan * 2 + 44;
@@ -47,13 +43,13 @@ function audioBufferToWav(buffer) {
   const view = new DataView(ab);
   let offset = 0;
 
-  function writeUint16(data) { view.setUint16(offset, data, true); offset += 2; }
-  function writeUint32(data) { view.setUint32(offset, data, true); offset += 4; }
+  const writeUint16 = (data) => { view.setUint16(offset, data, true); offset += 2; };
+  const writeUint32 = (data) => { view.setUint32(offset, data, true); offset += 4; };
 
   writeUint32(0x46464952); // "RIFF"
   writeUint32(length - 8);
   writeUint32(0x45564157); // "WAVE"
-  writeUint32(0x20746d66); // "fmt "
+  writeUint32(0x20746d66);
   writeUint32(16);
   writeUint16(1);
   writeUint16(numOfChan);
@@ -61,8 +57,10 @@ function audioBufferToWav(buffer) {
   writeUint32(buffer.sampleRate * 2 * numOfChan);
   writeUint16(numOfChan * 2);
   writeUint16(16);
-  writeUint32(0x61746164); // "data"
+  writeUint32(0x61746164);
   writeUint32(length - offset - 4);
+
+  function writeUint16(data) { view.setUint16(offset, data, true); offset += 2; }
 
   const channels = [];
   for (let i = 0; i < numOfChan; i++) channels.push(buffer.getChannelData(i));
@@ -92,7 +90,7 @@ export default function VoiceRecorder({ recipientLink, onSent }) {
       mediaRef.current = { mr, stream, chunks };
       setRecording(true);
     } catch (err) {
-      alert('Microphone access denied or unavailable: ' + err.message);
+      alert('Microphone access denied/unavailable: ' + err.message);
     }
   }
 
@@ -106,25 +104,26 @@ export default function VoiceRecorder({ recipientLink, onSent }) {
     setRecording(false);
 
     setAnonymizing(true);
-    const anon = await anonymizeBlob(rawBlob, 0.85);
+    const anonBlob = await anonymizeBlob(rawBlob, 0.85);
     setAnonymizing(false);
 
-    const base64 = await blobToBase64(anon);
+    const base64 = await blobToBase64(anonBlob);
     if (onSent) await onSent(base64);
   }
 
   return (
     <div className="glass">
-      <h3>Record anonymous message</h3>
+      <h3>Record an anonymous voice note</h3>
       <div className="row" style={{marginTop:8}}>
         {!recording ? (
-          <button className="btn btn-primary" onClick={start}>🎤 Start</button>
+          <button className="btn btn-primary" onClick={start}>🎤 Start Recording</button>
         ) : (
           <button className="btn btn-ghost" onClick={stopAndSend}>⏹ Stop & Send</button>
         )}
-        {anonymizing && <div className="small">Applying anonymization...</div>}
+        {anonymizing && <div className="small">Applying anonymization (pitch + render)...</div>}
       </div>
-      <div className="small" style={{marginTop:8}}>Recipient: <span className="link-box">{recipientLink}</span></div>
+      <div className="small" style={{marginTop:10}}>Recipient vault: <span className="link-box">{recipientLink}</span></div>
+      <div className="notice" style={{marginTop:10}}>Privacy note: recordings are anonymized in your browser before sending. No account required.</div>
     </div>
   );
 }
