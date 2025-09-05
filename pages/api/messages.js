@@ -1,6 +1,5 @@
-    
 /**
- * messages.ts – Backend + Frontend Integration for VoiceVault
+ * messages.js – Backend + Frontend Integration for VoiceVault
  * Features:
  * 1. Record voice in browser
  * 2. Convert to robotic voice on server
@@ -12,35 +11,15 @@ import { addMessage, getUserByLink, listMessagesForUser } from '../../lib/store'
 import fs from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
-import type { NextApiRequest, NextApiResponse } from 'next';
 
-// Define types for request bodies
-interface PostRequestBody {
-  userLink: string;
-  audioBase64: string;
-  mime?: string;
-  duration?: number | null;
-}
-
-interface GetQueryParams {
-  userLink: string;
-  adminToken: string;
-}
-
-// Main API handler
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req, res) {
   // ---------------------- POST: Add message ----------------------
   if (req.method === 'POST') {
     const { userLink, audioBase64, mime = 'audio/webm', duration = null } =
-      req.body as PostRequestBody;
+      req.body || {};
 
     if (!userLink || !audioBase64)
-      return res
-        .status(400)
-        .json({ error: 'userLink and audioBase64 required' });
+      return res.status(400).json({ error: 'userLink and audioBase64 required' });
 
     const user = await getUserByLink(userLink);
     if (!user)
@@ -62,12 +41,10 @@ export default async function handler(
 
   // ---------------------- GET: List messages ----------------------
   if (req.method === 'GET') {
-    const { userLink, adminToken } = req.query as unknown as GetQueryParams;
+    const { userLink, adminToken } = req.query;
 
     if (!userLink || !adminToken)
-      return res
-        .status(400)
-        .json({ error: 'userLink & adminToken required' });
+      return res.status(400).json({ error: 'userLink & adminToken required' });
 
     const user = await getUserByLink(userLink);
     if (!user) return res.status(404).json({ error: 'user not found' });
@@ -91,7 +68,7 @@ export default async function handler(
 }
 
 // ---------------------- Helper: Robotic Audio ----------------------
-function makeRobotic(base64Audio: string): string {
+function makeRobotic(base64Audio) {
   const inputPath = path.join(process.cwd(), 'tmp_input.webm');
   const outputPath = path.join(process.cwd(), 'tmp_robotic.webm');
 
