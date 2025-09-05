@@ -2,16 +2,11 @@ import { getMessageById, deleteMessageById, getUserByLink } from '../../../lib/s
 
 export default function handler(req, res) {
   const { id } = req.query;
-  console.log('Message handler called with id:', id);
-
   if (!id) return res.status(400).json({ error: 'id required' });
 
   if (req.method === 'GET') {
     const m = getMessageById(id);
-    if (!m) {
-      console.log('Message not found for id:', id);
-      return res.status(404).json({ error: 'not found' });
-    }
+    if (!m) return res.status(404).json({ error: 'not found' });
 
     const buffer = Buffer.from(m.audioBase64, 'base64');
     res.setHeader('Content-Type', m.mime || 'audio/webm');
@@ -24,15 +19,10 @@ export default function handler(req, res) {
     if (!adminToken) return res.status(400).json({ error: 'adminToken required' });
 
     const m = getMessageById(id);
-    if (!m) {
-      console.log('Message not found for delete id:', id);
-      return res.status(404).json({ error: 'not found' });
-    }
+    if (!m) return res.status(404).json({ error: 'not found' });
 
-    const user = getUserByLink(m.userLink.toLowerCase());
-    if (!user || user.adminToken !== adminToken) {
-      return res.status(403).json({ error: 'invalid admin token' });
-    }
+    const user = getUserByLink(m.userLink);
+    if (!user || user.adminToken !== adminToken) return res.status(403).json({ error: 'invalid admin token' });
 
     const ok = deleteMessageById(id);
     if (!ok) return res.status(500).json({ error: 'failed to delete' });
