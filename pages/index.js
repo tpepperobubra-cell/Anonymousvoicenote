@@ -1,87 +1,84 @@
-import React, { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
-const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
+import React, { useState, useRef } from 'react';
 
-export default function Home() {
-  const [recipientLink, setRecipientLink] = useState('');
-  const [recipient, setRecipient] = useState(null);
-  const [status, setStatus] = useState('');
-  const [offerVault, setOfferVault] = useState(true); // offer create vault prompt
+export default function VoiceRecorder({ recipientLink, onSent }) {
+  const [recording, setRecording] = useState(false);
+  const [base64, setBase64] = useState('');
+  const [progress, setProgress] = useState(0);
 
-  useEffect(() => {
-    // show prompt by default once
-    const seen = localStorage.getItem('offerVaultSeen');
-    if (!seen) setOfferVault(true);
-    else setOfferVault(false);
-  }, []);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
-  async function findRecipient() {
-    if (!recipientLink) return alert('Enter recipient link (e.g. anonymous-abc123)');
-    setStatus('Looking up recipient...');
-    const res = await fetch(`/api/users?link=${encodeURIComponent(recipientLink)}`);
-    if (!res.ok) {
-      setStatus('Recipient not found');
-      setRecipient(null);
-      return;
-    }
-    const u = await res.json();
-    setRecipient(u);
-    setStatus('');
-  }
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mediaRecorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = mediaRecorder;
 
-  async function sendHandler(base64) {
-    if (!recipient) return alert('No recipient selected');
-    setStatus('Sending message...');
-    const res = await fetch('/api/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userLink: recipient.userLink, audioBase64: base64 })
+    mediaRecorder.ondataavailable = e => audioChunksRef.current.push(e.data);
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      audioChunksRef.current = [];
+      const base64Data = await blobToBase64(blob);
+      setBase64(base64Data);
+    };
+
+    mediaRecorder.start();
+    setRecording(true);
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current.stop();
+    setRecording(false);
+  };
+
+  const blobToBase64 = blob =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
-    if (!res.ok) {
-      setStatus('Failed to send');
-      alert('Failed to send message');
-      return;
-    }
-    setStatus('Message sent — anonymous!');
-    setRecipient(null);
-    setRecipientLink('');
-  }
 
-  function openDashboardPrompt() {
-    const ok = confirm('Would you like to create your own Vault to receive anonymous notes? This will store a local admin token in your browser so you can manage messages. No account required.');
-    if (!ok) return;
-    // redirect to dashboard to create vault
-    window.location.href = '/dashboard';
-  }
+  const sendRecording = async () => {
+    if (!base64) return alert('No recording to send!');
+
+    setProgress(0);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/messages', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) setProgress((e.loaded / e.total) * 100);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status === 201) {
+        setBase64('');
+        setProgress(100);
+        if (onSent) onSent(base64); // call parent sendHandler
+      } else {
+        alert('Failed to send message!');
+      }
+      setTimeout(() => setProgress(0), 1000);
+    };
+
+    xhr.send(JSON.stringify({
+      userLink: recipientLink,
+      audioBase64: base64,
+      mime: 'audio/webm'
+    }));
+  };
 
   return (
-    <div className="container">
-      <div className="header">
-        <div className="logo">🎤 VoiceVault</div>
-        <div className="subtitle">Send anonymous voice notes — no account required</div>
-      </div>
-
-      <div className="glass">
-        <h2>Send Anonymous Voice Note</h2>
-        <div className="row" style={{marginTop:8}}>
-          <input className="input" placeholder="recipient link (e.g. anonymous-abc123)" value={recipientLink} onChange={(e)=>setRecipientLink(e.target.value)} />
-          <button className="btn btn-primary" onClick={findRecipient}>Find</button>
-        </div>
-
-        {recipient && (
-          <div style={{marginTop:12}}>
-            <div className="small">Sending to <strong>@{recipient.username}</strong></div>
-            <VoiceRecorder recipientLink={recipient.userLink} onSent={sendHandler} />
-          </div>
+    <div>
+      <div style={{ marginBottom: 8 }}>
+        {!recording ? (
+          <button className="btn btn-primary" onClick={startRecording}>Record</button>
+        ) : (
+          <button className="btn btn-warning" onClick={stopRecording}>Stop</button>
         )}
-
-        <div style={{marginTop:12}} className="small center">{status}</div>
+        <button className="btn btn-success" onClick={sendRecording} disabled={!base64}>Send</button>
       </div>
-
-      <div className="glass center">
-        <div className="small">Want to receive anonymous notes? <button className="btn btn-ghost" onClick={openDashboardPrompt}>Create your Vault</button></div>
-        <div className="small" style={{marginTop:8}}>Emphasis on anonymity — we do not require an account. Messages are anonymized in your browser before upload.</div>
-      </div>
+      {progress > 0 && <progress value={progress} max="100" style={{ width: '100%' }} />}
     </div>
   );
 }
