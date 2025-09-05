@@ -1,32 +1,35 @@
-import { sql } from '@vercel/postgres';
+import { PrismaClient } from '@prisma/client';
 import { nanoid } from 'nanoid';
+
+const prisma = new PrismaClient();
 
 export default async function handler(req, res) {
   if (req.method === 'POST') {
-    const { username } = req.body;
-    if (!username || username.trim() === '') return res.status(400).json({ error: 'username required' });
+    try {
+      const { username } = req.body;
+      if (!username) return res.status(400).json({ error: 'username required' });
 
-    const userLink = `anonymous-${nanoid(8)}`;
-    const result = await sql`
-      INSERT INTO users (username, user_link)
-      VALUES (${username.trim()}, ${userLink})
-      RETURNING id, username, user_link AS "userLink", admin_token::text AS "adminToken", created_at AS "createdAt"
-    `;
-    return res.json(result.rows[0]);
-  }
+      const userLink = `anonymous-${nanoid(8)}`;
 
-  if (req.method === 'GET') {
+      const user = await prisma.user.create({
+        data: {
+          username,
+          userLink,
+        },
+      });
+
+      res.json(user);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'failed to create vault' });
+    }
+  } else if (req.method === 'GET') {
     const { link } = req.query;
-    if (!link) return res.status(400).json({ error: 'link required' });
-
-    const result = await sql`
-      SELECT id, username, user_link AS "userLink", created_at AS "createdAt"
-      FROM users WHERE user_link = ${link}
-    `;
-    if (result.rows.length === 0) return res.status(404).json({ error: 'not found' });
-    return res.json(result.rows[0]);
+    const user = await prisma.user.findUnique({ where: { userLink: link } });
+    if (!user) return res.status(404).json({ error: 'not found' });
+    res.json(user);
+  } else {
+    res.setHeader('Allow', ['GET', 'POST']);
+    res.status(405).end();
   }
-
-  res.setHeader('Allow', ['GET','POST']);
-  res.status(405).end();
 }
