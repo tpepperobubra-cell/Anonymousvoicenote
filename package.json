@@ -1,14 +1,15 @@
 {
-  "name": "voicevault-next",
+  "name": "voicevault-next-nodb",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start"
+    "start": "next start -p 3000"
   },
   "dependencies": {
     "next": "13.5.6",
+    "nanoid": "^4.0.0",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   }
