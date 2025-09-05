@@ -1,7 +1,6 @@
 node_modules/
 .next/
-.env
-data.db
-uploads/
+.env.local
 .DS_Store
 npm-debug.log
+.vscode/
