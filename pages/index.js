@@ -5,6 +5,7 @@ export default function Home() {
   const [vault, setVault] = useState(null);
 
   const createVault = async () => {
+    if (!username.trim()) return alert("Please enter a username");
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -20,52 +21,58 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6">
-      <h1 className="text-3xl font-bold mb-4">🎙️ Anonymous Voice Notes</h1>
+    <div className="flex items-center justify-center min-h-screen bg-gray-50 px-4">
+      <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md">
+        <h1 className="text-3xl font-bold text-center mb-6">
+          🎙️ Anonymous Voice Notes
+        </h1>
 
-      {!vault ? (
-        <div className="w-full max-w-md space-y-4">
-          <input
-            type="text"
-            placeholder="Enter a username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full border rounded p-2"
-          />
-          <button
-            onClick={createVault}
-            className="w-full bg-blue-600 text-white py-2 rounded"
-          >
-            Create Vault
-          </button>
-        </div>
-      ) : (
-        <div className="text-center space-y-4">
-          <p className="text-green-600 font-semibold">✅ Vault created!</p>
-          <p>
-            Share this link for others to send you notes:
-            <br />
-            <a
-              href={`/user/${vault.userLink}`}
-              className="text-blue-500 underline break-all"
+        {!vault ? (
+          <div className="space-y-4">
+            <input
+              type="text"
+              placeholder="Enter your username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <button
+              onClick={createVault}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-all duration-200"
             >
-              {typeof window !== "undefined" &&
-                `${window.location.origin}/user/${vault.userLink}`}
-            </a>
-          </p>
-          <p>
-            Manage your vault here:
-            <br />
-            <a
-              href={`/dashboard/${vault.userLink}`}
-              className="text-purple-500 underline break-all"
-            >
-              {typeof window !== "undefined" &&
-                `${window.location.origin}/dashboard/${vault.userLink}`}
-            </a>
-          </p>
-        </div>
-      )}
+              Create Vault
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4 text-center">
+            <p className="text-green-600 font-semibold text-lg">
+              ✅ Vault created!
+            </p>
+
+            <div className="bg-gray-100 p-3 rounded-lg text-sm break-words">
+              <p className="font-medium">🔗 Share this link:</p>
+              <a
+                href={`/user/${vault.userLink}`}
+                className="text-blue-600 underline"
+              >
+                {typeof window !== "undefined" &&
+                  `${window.location.origin}/user/${vault.userLink}`}
+              </a>
+            </div>
+
+            <div className="bg-gray-100 p-3 rounded-lg text-sm break-words">
+              <p className="font-medium">📂 Manage your vault:</p>
+              <a
+                href={`/dashboard/${vault.userLink}`}
+                className="text-purple-600 underline"
+              >
+                {typeof window !== "undefined" &&
+                  `${window.location.origin}/dashboard/${vault.userLink}`}
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
