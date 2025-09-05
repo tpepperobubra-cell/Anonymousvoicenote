@@ -68,6 +68,7 @@ export default function Dashboard() {
       xhr.open('POST', '/api/messages');
       xhr.setRequestHeader('Content-Type', 'application/json');
 
+      // Track upload progress
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable)
           setSendingProgress((e.loaded / e.total) * 100);
@@ -96,10 +97,49 @@ export default function Dashboard() {
   };
 
   // ---------------- Render ----------------
+
+  // If no user vault, show Create Vault button
   if (!user)
     return (
-      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
-        Loading dashboard...
+      <div
+        style={{
+          padding: 20,
+          textAlign: 'center',
+          color: '#555',
+        }}
+      >
+        No vault found.
+        <br />
+        <button
+          onClick={async () => {
+            try {
+              const res = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'AnonymousUser' }),
+              });
+              const newUser = await res.json();
+              localStorage.setItem(
+                'voiceVaultUser',
+                JSON.stringify(newUser)
+              );
+              setUser(newUser);
+            } catch (err) {
+              console.error('Error creating vault:', err);
+            }
+          }}
+          style={{
+            marginTop: 10,
+            padding: '8px 16px',
+            backgroundColor: '#3498db',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+          }}
+        >
+          Create Vault
+        </button>
       </div>
     );
 
@@ -119,7 +159,14 @@ export default function Dashboard() {
       </h1>
 
       {/* Recording Controls */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 20 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: 10,
+          marginBottom: 20,
+        }}
+      >
         <button
           onClick={recording ? stopRecording : startRecording}
           style={{
