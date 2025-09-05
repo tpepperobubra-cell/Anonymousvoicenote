@@ -1,0 +1,9 @@
+version: '3.8'
+services:
+  voicevault:
+    build: .
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
