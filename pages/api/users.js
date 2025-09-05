@@ -1,26 +1,27 @@
-// In-memory store for users
-let users = [];
+// POST /api/users => create a vault
+// GET  /api/users?link=anonymous-... => fetch user info (public)
+import { createUser, getUserByLink } from '../../lib/store';
 
 export default function handler(req, res) {
-  if (req.method === 'GET') {
-    return res.status(200).json(users);
-  }
-
   if (req.method === 'POST') {
-    const { name } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Name is required' });
+    const { username } = req.body || {};
+    if (!username || username.trim().length === 0) {
+      return res.status(400).json({ error: 'username required' });
     }
-
-    const user = {
-      id: Date.now().toString(),
-      name,
-      createdAt: new Date().toISOString()
-    };
-
-    users.push(user);
-    return res.status(201).json(user);
+    const u = createUser(username.trim());
+    // Return adminToken so owner can manage (store locally)
+    return res.status(201).json(u);
   }
 
-  return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method === 'GET') {
+    const { link } = req.query;
+    if (!link) return res.status(400).json({ error: 'link required' });
+    const u = getUserByLink(link);
+    if (!u) return res.status(404).json({ error: 'not found' });
+    // Return public info only
+    return res.status(200).json({ id: u.id, username: u.username, userLink: u.userLink, createdAt: u.createdAt });
+  }
+
+  res.setHeader('Allow', ['GET','POST']);
+  res.status(405).end();
 }
