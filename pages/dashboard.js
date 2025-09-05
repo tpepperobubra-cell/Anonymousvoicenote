@@ -1,126 +1,207 @@
-import React, { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
-const MessageList = dynamic(() => import('../components/MessageList'), { ssr: false });
+import { useState, useEffect, useRef } from 'react';
 
 export default function Dashboard() {
-  const [vault, setVault] = useState(null);
-  const [adminToken, setAdminToken] = useState(null);
+  const [user, setUser] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const [audioChunks, setAudioChunks] = useState([]);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [usernameInput, setUsernameInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [sendingProgress, setSendingProgress] = useState(0);
+  const audioRef = useRef(null);
 
+  // ---------------- Load user from localStorage ----------------
   useEffect(() => {
-    const saved = localStorage.getItem('voicevault_vault');
-    if (saved) {
-      const v = JSON.parse(saved);
-      setVault(v);
-      setAdminToken(v.adminToken);
-      fetchMessages(v, v.adminToken);
-    }
+    const stored = JSON.parse(localStorage.getItem('voiceVaultUser'));
+    if (stored) setUser(stored);
   }, []);
 
-  async function createVault() {
-    if (!usernameInput || usernameInput.trim() === '') return alert('enter username');
-    setLoading(true);
-    const res = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ username: usernameInput.trim() }) });
-    if (!res.ok) {
-      setLoading(false);
-      return alert('Failed to create vault');
+  // ---------------- Fetch messages ----------------
+  const fetchMessages = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(
+        `/api/messages?userLink=${user.userLink}&adminToken=${user.adminToken}`
+      );
+      const data = await res.json();
+      setMessages(data);
+    } catch (err) {
+      console.error('Error fetching messages:', err);
     }
-    const json = await res.json();
-    setVault(json);
-    setAdminToken(json.adminToken);
-    localStorage.setItem('voicevault_vault', JSON.stringify(json));
-    setUsernameInput('');
-    fetchMessages(json, json.adminToken);
-    setLoading(false);
-  }
+  };
 
-  async function fetchMessages(v = vault, token = adminToken) {
-    if (!v || !token) return;
-    setLoading(true);
-    const res = await fetch(`/api/messages?userLink=${encodeURIComponent(v.userLink)}&adminToken=${encodeURIComponent(token)}`);
-    if (!res.ok) {
-      setMessages([]);
-      setLoading(false);
-      return;
+  useEffect(() => {
+    if (user) fetchMessages();
+  }, [user]);
+
+  // ---------------- Recording ----------------
+  const startRecording = async () => {
+    setRecording(true);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    setMediaRecorder(recorder);
+
+    const chunks = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = () => setAudioChunks(chunks);
+    recorder.start();
+  };
+
+  const stopRecording = () => {
+    setRecording(false);
+    mediaRecorder.stop();
+  };
+
+  // ---------------- Send voice ----------------
+  const sendVoice = async () => {
+    if (!audioChunks.length || !user) return;
+
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    const arrayBuffer = await blob.arrayBuffer();
+    const base64Audio = btoa(
+      String.fromCharCode(...new Uint8Array(arrayBuffer))
+    );
+
+    setSendingProgress(0);
+
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/messages');
+      xhr.setRequestHeader('Content-Type', 'application/json');
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable)
+          setSendingProgress((e.loaded / e.total) * 100);
+      };
+
+      xhr.onload = async () => {
+        if (xhr.status === 201) {
+          setAudioChunks([]);
+          setSendingProgress(100);
+          await fetchMessages();
+        } else {
+          console.error('Failed to send message:', xhr.responseText);
+        }
+      };
+
+      xhr.onerror = () => console.error('Network error during sending');
+      xhr.send(
+        JSON.stringify({
+          userLink: user.userLink,
+          audioBase64: base64Audio,
+        })
+      );
+    } catch (err) {
+      console.error('Error sending voice:', err);
     }
-    const list = await res.json();
-    setMessages(list);
-    setLoading(false);
-  }
+  };
 
-  async function handleDelete(id) {
-    if (!vault) return;
-    const ok = confirm('Delete this message?');
-    if (!ok) return;
-    const res = await fetch(`/api/messages/${encodeURIComponent(id)}?adminToken=${encodeURIComponent(adminToken)}`, { method: 'DELETE' });
-    if (res.ok) {
-      fetchMessages();
-    } else {
-      alert('Failed to delete');
-    }
-  }
-
-  function copyLink() {
-    if (vault) {
-      navigator.clipboard.writeText(vault.userLink);
-      alert('Link copied to clipboard');
-    }
-  }
-
-  function clearLocal() {
-    localStorage.removeItem('voicevault_vault');
-    setVault(null);
-    setMessages([]);
-    setAdminToken(null);
-  }
+  // ---------------- Render ----------------
+  if (!user)
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
+        Loading dashboard...
+      </div>
+    );
 
   return (
-    <div className="container">
-      <div className="header">
-        <div className="logo">🎤 VoiceVault — Dashboard</div>
-        <div className="subtitle">Create your Vault to receive anonymous messages</div>
+    <div
+      style={{
+        padding: 20,
+        maxWidth: 600,
+        margin: '0 auto',
+        backgroundColor: '#fff',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+        borderRadius: 8,
+      }}
+    >
+      <h1 style={{ textAlign: 'center', fontSize: 24, marginBottom: 20 }}>
+        VoiceVault Dashboard
+      </h1>
+
+      {/* Recording Controls */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 20 }}>
+        <button
+          onClick={recording ? stopRecording : startRecording}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 6,
+            border: 'none',
+            color: '#fff',
+            backgroundColor: recording ? '#e74c3c' : '#2ecc71',
+            cursor: 'pointer',
+          }}
+        >
+          {recording ? 'Stop' : 'Record'}
+        </button>
+
+        {audioChunks.length > 0 && (
+          <button
+            onClick={sendVoice}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: 'none',
+              color: '#fff',
+              backgroundColor: '#3498db',
+              cursor: 'pointer',
+            }}
+          >
+            Send
+          </button>
+        )}
       </div>
 
-      {!vault ? (
-        <div className="glass">
-          <h3>Create your Vault (no account)</h3>
-          <div className="row" style={{marginTop:8}}>
-            <input className="input" placeholder="display name (optional)" value={usernameInput} onChange={(e)=>setUsernameInput(e.target.value)} />
-            <button className="btn btn-primary" onClick={createVault} disabled={loading}>{loading ? 'Creating…' : 'Create Vault'}</button>
-          </div>
-          <div className="small" style={{marginTop:10}}>Your admin token will be stored locally in your browser. Keep it private — anyone with it can manage the Vault.</div>
+      {/* Sending Progress Bar */}
+      {sendingProgress > 0 && sendingProgress < 100 && (
+        <div
+          style={{
+            width: '100%',
+            height: 8,
+            backgroundColor: '#ddd',
+            borderRadius: 4,
+            marginBottom: 20,
+          }}
+        >
+          <div
+            style={{
+              width: `${sendingProgress}%`,
+              height: '100%',
+              backgroundColor: '#3498db',
+              borderRadius: 4,
+            }}
+          ></div>
         </div>
-      ) : (
-        <>
-          <div className="glass row" style={{justifyContent:'space-between', alignItems:'center'}}>
-            <div>
-              <div style={{fontWeight:700}}>Vault: <span className="small">{vault.userLink}</span></div>
-              <div className="small">Display name: {vault.username || '(none)'}</div>
-            </div>
-            <div style={{textAlign:'right'}}>
-              <button className="btn btn-ghost" onClick={copyLink}>Copy Link</button>
-              <button className="btn btn-ghost" onClick={() => { navigator.clipboard.writeText(vault.adminToken); alert('Admin token copied (keep private)'); }}>Copy Admin Token</button>
-              <button className="btn btn-ghost" onClick={clearLocal}>Clear Local</button>
-              <button className="btn btn-primary" onClick={() => fetchMessages()}>Refresh</button>
-            </div>
-          </div>
-
-          <div className="glass">
-            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <div>
-                <span className="stat">Messages: {messages.length}</span>
-              </div>
-              <div className="small">Vault created: {new Date(vault.createdAt).toLocaleString()}</div>
-            </div>
-
-            <div style={{marginTop:12}}>
-              {loading ? <div className="small">Loading messages…</div> : <MessageList messages={messages} onDelete={handleDelete} adminToken={adminToken} />}
-            </div>
-          </div>
-        </>
       )}
+
+      {/* Conversation Feed */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            style={{
+              padding: 10,
+              backgroundColor: '#f7f7f7',
+              borderRadius: 6,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#888' }}>{m.user}</span>
+            <audio
+              ref={audioRef}
+              controls
+              src={m.url}
+              style={{
+                width: '100%',
+                borderRadius: 4,
+                border: '1px solid #ccc',
+              }}
+            ></audio>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
