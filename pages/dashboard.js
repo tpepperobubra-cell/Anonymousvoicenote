@@ -1,358 +1,126 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+const MessageList = dynamic(() => import('../components/MessageList'), { ssr: false });
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-  const [recording, setRecording] = useState(false);
-  const [audioChunks, setAudioChunks] = useState([]);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [vault, setVault] = useState(null);
+  const [adminToken, setAdminToken] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [sendingProgress, setSendingProgress] = useState(0);
-  const audioRef = useRef(null);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // ---------------- Load user from localStorage ----------------
   useEffect(() => {
-    const stored = localStorage.getItem('voiceVaultUser');
-    if (stored) {
-      setUser(JSON.parse(stored));
+    const saved = localStorage.getItem('voicevault_vault');
+    if (saved) {
+      const v = JSON.parse(saved);
+      setVault(v);
+      setAdminToken(v.adminToken);
+      fetchMessages(v, v.adminToken);
     }
-    setLoadingUser(false);
   }, []);
 
-  // ---------------- Fetch messages ----------------
-  const fetchMessages = async (vaultUser) => {
-    if (!vaultUser) return;
-    try {
-      const res = await fetch(
-        `/api/messages?userLink=${vaultUser.userLink}&adminToken=${vaultUser.adminToken}`
-      );
-      const data = await res.json();
-      setMessages(data);
-    } catch (err) {
-      console.error('Error fetching messages:', err);
+  async function createVault() {
+    if (!usernameInput || usernameInput.trim() === '') return alert('enter username');
+    setLoading(true);
+    const res = await fetch('/api/users', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ username: usernameInput.trim() }) });
+    if (!res.ok) {
+      setLoading(false);
+      return alert('Failed to create vault');
     }
-  };
-
-  useEffect(() => {
-    if (user) fetchMessages(user);
-  }, [user]);
-
-  // ---------------- Recording ----------------
-  const startRecording = async () => {
-    setRecording(true);
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    setMediaRecorder(recorder);
-
-    const chunks = [];
-    recorder.ondataavailable = (e) => chunks.push(e.data);
-    recorder.onstop = () => setAudioChunks(chunks);
-    recorder.start();
-  };
-
-  const stopRecording = () => {
-    setRecording(false);
-    mediaRecorder.stop();
-  };
-
-  // ---------------- Robotic voice conversion ----------------
-  const makeRobotic = async (blob) => {
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
-
-    const offlineCtx = new OfflineAudioContext(
-      decoded.numberOfChannels,
-      decoded.length,
-      decoded.sampleRate
-    );
-
-    const source = offlineCtx.createBufferSource();
-    source.buffer = decoded;
-
-    // ---------------- Robotic effect: pitch + tremolo ----------------
-    const gainNode = offlineCtx.createGain();
-    const oscillator = offlineCtx.createOscillator();
-    oscillator.type = 'square'; // adds metallic/robotic texture
-    oscillator.frequency.value = 30; // low frequency modulation
-    oscillator.connect(gainNode.gain);
-
-    source.connect(gainNode);
-    gainNode.connect(offlineCtx.destination);
-
-    source.start(0);
-    oscillator.start(0);
-    oscillator.stop(offlineCtx.length / offlineCtx.sampleRate);
-
-    const renderedBuffer = await offlineCtx.startRendering();
-
-    // Convert to WAV
-    const wavBuffer = audioBufferToWav(renderedBuffer);
-    return new Blob([wavBuffer], { type: 'audio/webm' });
-  };
-
-  // ---------------- Helper: AudioBuffer -> WAV ----------------
-  function audioBufferToWav(buffer) {
-    const numOfChan = buffer.numberOfChannels;
-    const length = buffer.length * numOfChan * 2 + 44;
-    const bufferArray = new ArrayBuffer(length);
-    const view = new DataView(bufferArray);
-    let offset = 0;
-
-    const writeString = (str) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset++, str.charCodeAt(i));
-      }
-    };
-
-    writeString('RIFF');
-    view.setUint32(offset, length - 8, true);
-    offset += 4;
-    writeString('WAVE');
-    writeString('fmt ');
-    view.setUint32(offset, 16, true);
-    offset += 4;
-    view.setUint16(offset, 1, true);
-    offset += 2;
-    view.setUint16(offset, numOfChan, true);
-    offset += 2;
-    view.setUint32(offset, buffer.sampleRate, true);
-    offset += 4;
-    view.setUint32(offset, buffer.sampleRate * 2 * numOfChan, true);
-    offset += 4;
-    view.setUint16(offset, numOfChan * 2, true);
-    offset += 2;
-    view.setUint16(offset, 16, true);
-    offset += 2;
-    writeString('data');
-    view.setUint32(offset, length - offset - 4, true);
-    offset += 4;
-
-    // Write PCM samples
-    const interleaved = [];
-    for (let i = 0; i < buffer.length; i++) {
-      for (let channel = 0; channel < numOfChan; channel++) {
-        let sample = buffer.getChannelData(channel)[i] * 32767;
-        if (sample > 32767) sample = 32767;
-        if (sample < -32768) sample = -32768;
-        interleaved.push(sample);
-      }
-    }
-
-    for (let i = 0; i < interleaved.length; i++) {
-      view.setInt16(offset, interleaved[i], true);
-      offset += 2;
-    }
-
-    return bufferArray;
+    const json = await res.json();
+    setVault(json);
+    setAdminToken(json.adminToken);
+    localStorage.setItem('voicevault_vault', JSON.stringify(json));
+    setUsernameInput('');
+    fetchMessages(json, json.adminToken);
+    setLoading(false);
   }
 
-  // ---------------- Send voice ----------------
-  const sendVoice = async () => {
-    if (!audioChunks.length || !user) return;
-
-    const blob = new Blob(audioChunks, { type: 'audio/webm' });
-    const roboticBlob = await makeRobotic(blob);
-
-    const arrayBuffer = await roboticBlob.arrayBuffer();
-    const base64Audio = btoa(
-      String.fromCharCode(...new Uint8Array(arrayBuffer))
-    );
-
-    setSendingProgress(0);
-
-    try {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/messages');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable)
-          setSendingProgress((e.loaded / e.total) * 100);
-      };
-
-      xhr.onload = async () => {
-        if (xhr.status === 201) {
-          setAudioChunks([]);
-          setSendingProgress(100);
-          await fetchMessages(user);
-        } else {
-          console.error('Failed to send message:', xhr.responseText);
-        }
-      };
-
-      xhr.onerror = () => console.error('Network error during sending');
-      xhr.send(
-        JSON.stringify({
-          userLink: user.userLink, // anonymous
-          audioBase64: base64Audio,
-        })
-      );
-    } catch (err) {
-      console.error('Error sending voice:', err);
+  async function fetchMessages(v = vault, token = adminToken) {
+    if (!v || !token) return;
+    setLoading(true);
+    const res = await fetch(`/api/messages?userLink=${encodeURIComponent(v.userLink)}&adminToken=${encodeURIComponent(token)}`);
+    if (!res.ok) {
+      setMessages([]);
+      setLoading(false);
+      return;
     }
-  };
+    const list = await res.json();
+    setMessages(list);
+    setLoading(false);
+  }
 
-  // ---------------- Create Vault ----------------
-  const createVault = async () => {
-    try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'AnonymousUser' }),
-      });
-      if (!res.ok) throw new Error('Failed to create vault');
-
-      const newUser = await res.json();
-      localStorage.setItem('voiceVaultUser', JSON.stringify(newUser));
-      setUser(newUser);
-
-      await fetchMessages(newUser);
-    } catch (err) {
-      console.error('Error creating vault:', err);
-      alert('Failed to create vault. Try again.');
+  async function handleDelete(id) {
+    if (!vault) return;
+    const ok = confirm('Delete this message?');
+    if (!ok) return;
+    const res = await fetch(`/api/messages/${encodeURIComponent(id)}?adminToken=${encodeURIComponent(adminToken)}`, { method: 'DELETE' });
+    if (res.ok) {
+      fetchMessages();
+    } else {
+      alert('Failed to delete');
     }
-  };
+  }
 
-  // ---------------- Render ----------------
-  if (loadingUser)
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
-        Loading dashboard...
-      </div>
-    );
+  function copyLink() {
+    if (vault) {
+      navigator.clipboard.writeText(vault.userLink);
+      alert('Link copied to clipboard');
+    }
+  }
 
-  if (!user)
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
-        No vault found.
-        <br />
-        <button
-          onClick={createVault}
-          style={{
-            marginTop: 10,
-            padding: '8px 16px',
-            backgroundColor: '#3498db',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
-          }}
-        >
-          Create Vault
-        </button>
-      </div>
-    );
+  function clearLocal() {
+    localStorage.removeItem('voicevault_vault');
+    setVault(null);
+    setMessages([]);
+    setAdminToken(null);
+  }
 
   return (
-    <div
-      style={{
-        padding: 20,
-        maxWidth: 600,
-        margin: '0 auto',
-        backgroundColor: '#fff',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-        borderRadius: 8,
-      }}
-    >
-      <h1 style={{ textAlign: 'center', fontSize: 24, marginBottom: 20 }}>
-        VoiceVault Dashboard
-      </h1>
-
-      {/* Recording Controls */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        <button
-          onClick={recording ? stopRecording : startRecording}
-          style={{
-            padding: '8px 16px',
-            borderRadius: 6,
-            border: 'none',
-            color: '#fff',
-            backgroundColor: recording ? '#e74c3c' : '#2ecc71',
-            cursor: 'pointer',
-          }}
-        >
-          {recording ? 'Stop' : 'Record'}
-        </button>
-
-        {audioChunks.length > 0 && (
-          <button
-            onClick={sendVoice}
-            style={{
-              padding: '8px 16px',
-              borderRadius: 6,
-              border: 'none',
-              color: '#fff',
-              backgroundColor: '#3498db',
-              cursor: 'pointer',
-            }}
-          >
-            Send
-          </button>
-        )}
+    <div className="container">
+      <div className="header">
+        <div className="logo">🎤 VoiceVault — Dashboard</div>
+        <div className="subtitle">Create your Vault to receive anonymous messages</div>
       </div>
 
-      {/* Sending Progress Bar */}
-      {sendingProgress > 0 && sendingProgress < 100 && (
-        <div
-          style={{
-            width: '100%',
-            height: 8,
-            backgroundColor: '#ddd',
-            borderRadius: 4,
-            marginBottom: 20,
-          }}
-        >
-          <div
-            style={{
-              width: `${sendingProgress}%`,
-              height: '100%',
-              backgroundColor: '#3498db',
-              borderRadius: 4,
-            }}
-          ></div>
-        </div>
-      )}
-
-      {/* Conversation Feed */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-{messages.map((m) => (
-          <div
-            key={m.id}
-            style={{
-              padding: 10,
-              backgroundColor: '#f7f7f7',
-              borderRadius: 6,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            {/* Anonymous label */}
-            <span style={{ fontSize: 12, color: '#888' }}>Anonymous</span>
-            
-            {/* Audio player */}
-            <audio
-              ref={audioRef}
-              controls
-              src={m.url}
-              style={{
-                width: '100%',
-                borderRadius: 4,
-                border: '1px solid #ccc',
-              }}
-            ></audio>
+      {!vault ? (
+        <div className="glass">
+          <h3>Create your Vault (no account)</h3>
+          <div className="row" style={{marginTop:8}}>
+            <input className="input" placeholder="display name (optional)" value={usernameInput} onChange={(e)=>setUsernameInput(e.target.value)} />
+            <button className="btn btn-primary" onClick={createVault} disabled={loading}>{loading ? 'Creating…' : 'Create Vault'}</button>
           </div>
-        ))}
-      </div>
+          <div className="small" style={{marginTop:10}}>Your admin token will be stored locally in your browser. Keep it private — anyone with it can manage the Vault.</div>
+        </div>
+      ) : (
+        <>
+          <div className="glass row" style={{justifyContent:'space-between', alignItems:'center'}}>
+            <div>
+              <div style={{fontWeight:700}}>Vault: <span className="small">{vault.userLink}</span></div>
+              <div className="small">Display name: {vault.username || '(none)'}</div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <button className="btn btn-ghost" onClick={copyLink}>Copy Link</button>
+              <button className="btn btn-ghost" onClick={() => { navigator.clipboard.writeText(vault.adminToken); alert('Admin token copied (keep private)'); }}>Copy Admin Token</button>
+              <button className="btn btn-ghost" onClick={clearLocal}>Clear Local</button>
+              <button className="btn btn-primary" onClick={() => fetchMessages()}>Refresh</button>
+            </div>
+          </div>
+
+          <div className="glass">
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <div>
+                <span className="stat">Messages: {messages.length}</span>
+              </div>
+              <div className="small">Vault created: {new Date(vault.createdAt).toLocaleString()}</div>
+            </div>
+
+            <div style={{marginTop:12}}>
+              {loading ? <div className="small">Loading messages…</div> : <MessageList messages={messages} onDelete={handleDelete} adminToken={adminToken} />}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
