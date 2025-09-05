@@ -1,3 +1,4 @@
+// components/MessageList.js
 import React, { useRef, useState } from 'react';
 
 // Capture playing audio from an HTMLAudioElement
@@ -6,8 +7,12 @@ async function capturePlayingAudio(audioEl, limitMs = 20000) {
   if (audioEl.captureStream) {
     stream = audioEl.captureStream();
   } else {
-    // fallback: ask for display capture with audio (user may need to pick tab/window)
-    stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: false });
+    // fallback: getDisplayMedia with audio (user chooses tab/window)
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: false });
+    } catch (err) {
+      throw new Error('No capture method available: ' + err.message);
+    }
   }
 
   const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -15,9 +20,8 @@ async function capturePlayingAudio(audioEl, limitMs = 20000) {
   mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   mr.start();
 
-  // stop on audio end or after limit
   await Promise.race([
-    new Promise(r => { audioEl.addEventListener('ended', r, { once: true }) }),
+    new Promise(r => audioEl.addEventListener('ended', r, { once: true })),
     new Promise(r => setTimeout(r, limitMs))
   ]);
 
@@ -26,7 +30,6 @@ async function capturePlayingAudio(audioEl, limitMs = 20000) {
 
   // cleanup
   try { stream.getTracks().forEach(t => t.stop()); } catch(e) {}
-
   return new Blob(chunks, { type: 'audio/webm' });
 }
 
@@ -44,13 +47,15 @@ export default function MessageList({ messages = [], onDelete, adminToken }) {
       const file = new File([blob], 'voicevault.webm', { type: blob.type });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Anonymous voice note', text: 'From VoiceVault' });
+        await navigator.share({ files: [file], title: 'Anonymous Voice Note', text: 'Shared from VoiceVault' });
       } else {
         // fallback download
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = 'voicevault.webm';
-        document.body.appendChild(a); a.click(); a.remove();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
         URL.revokeObjectURL(url);
       }
     } catch (err) {
@@ -62,7 +67,7 @@ export default function MessageList({ messages = [], onDelete, adminToken }) {
 
   return (
     <div>
-      {messages.length === 0 && <div className="small">No messages yet</div>}
+      {messages.length === 0 && <div className="small">No messages yet.</div>}
       {messages.map(m => (
         <div key={m.id} className="message glass">
           <div className="row" style={{justifyContent:'space-between'}}>
