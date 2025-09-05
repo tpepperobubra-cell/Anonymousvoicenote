@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
   const [recording, setRecording] = useState(false);
   const [audioChunks, setAudioChunks] = useState([]);
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -11,16 +12,19 @@ export default function Dashboard() {
 
   // ---------------- Load user from localStorage ----------------
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('voiceVaultUser'));
-    if (stored) setUser(stored);
+    const stored = localStorage.getItem('voiceVaultUser');
+    if (stored) {
+      setUser(JSON.parse(stored));
+    }
+    setLoadingUser(false);
   }, []);
 
   // ---------------- Fetch messages ----------------
-  const fetchMessages = async () => {
-    if (!user) return;
+  const fetchMessages = async (vaultUser) => {
+    if (!vaultUser) return;
     try {
       const res = await fetch(
-        `/api/messages?userLink=${user.userLink}&adminToken=${user.adminToken}`
+        `/api/messages?userLink=${vaultUser.userLink}&adminToken=${vaultUser.adminToken}`
       );
       const data = await res.json();
       setMessages(data);
@@ -30,7 +34,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (user) fetchMessages();
+    if (user) fetchMessages(user);
   }, [user]);
 
   // ---------------- Recording ----------------
@@ -51,12 +55,106 @@ export default function Dashboard() {
     mediaRecorder.stop();
   };
 
+  // ---------------- Robotic voice conversion ----------------
+  const makeRobotic = async (blob) => {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+
+    const offlineCtx = new OfflineAudioContext(
+      decoded.numberOfChannels,
+      decoded.length,
+      decoded.sampleRate
+    );
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = decoded;
+
+    // ---------------- Robotic effect: pitch + tremolo ----------------
+    const gainNode = offlineCtx.createGain();
+    const oscillator = offlineCtx.createOscillator();
+    oscillator.type = 'square'; // adds metallic/robotic texture
+    oscillator.frequency.value = 30; // low frequency modulation
+    oscillator.connect(gainNode.gain);
+
+    source.connect(gainNode);
+    gainNode.connect(offlineCtx.destination);
+
+    source.start(0);
+    oscillator.start(0);
+    oscillator.stop(offlineCtx.length / offlineCtx.sampleRate);
+
+    const renderedBuffer = await offlineCtx.startRendering();
+
+    // Convert to WAV
+    const wavBuffer = audioBufferToWav(renderedBuffer);
+    return new Blob([wavBuffer], { type: 'audio/webm' });
+  };
+
+  // ---------------- Helper: AudioBuffer -> WAV ----------------
+  function audioBufferToWav(buffer) {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const bufferArray = new ArrayBuffer(length);
+    const view = new DataView(bufferArray);
+    let offset = 0;
+
+    const writeString = (str) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset++, str.charCodeAt(i));
+      }
+    };
+
+    writeString('RIFF');
+    view.setUint32(offset, length - 8, true);
+    offset += 4;
+    writeString('WAVE');
+    writeString('fmt ');
+    view.setUint32(offset, 16, true);
+    offset += 4;
+    view.setUint16(offset, 1, true);
+    offset += 2;
+    view.setUint16(offset, numOfChan, true);
+    offset += 2;
+    view.setUint32(offset, buffer.sampleRate, true);
+    offset += 4;
+    view.setUint32(offset, buffer.sampleRate * 2 * numOfChan, true);
+    offset += 4;
+    view.setUint16(offset, numOfChan * 2, true);
+    offset += 2;
+    view.setUint16(offset, 16, true);
+    offset += 2;
+    writeString('data');
+    view.setUint32(offset, length - offset - 4, true);
+    offset += 4;
+
+    // Write PCM samples
+    const interleaved = [];
+    for (let i = 0; i < buffer.length; i++) {
+      for (let channel = 0; channel < numOfChan; channel++) {
+        let sample = buffer.getChannelData(channel)[i] * 32767;
+        if (sample > 32767) sample = 32767;
+        if (sample < -32768) sample = -32768;
+        interleaved.push(sample);
+      }
+    }
+
+    for (let i = 0; i < interleaved.length; i++) {
+      view.setInt16(offset, interleaved[i], true);
+      offset += 2;
+    }
+
+    return bufferArray;
+  }
+
   // ---------------- Send voice ----------------
   const sendVoice = async () => {
     if (!audioChunks.length || !user) return;
 
     const blob = new Blob(audioChunks, { type: 'audio/webm' });
-    const arrayBuffer = await blob.arrayBuffer();
+    const roboticBlob = await makeRobotic(blob);
+
+    const arrayBuffer = await roboticBlob.arrayBuffer();
     const base64Audio = btoa(
       String.fromCharCode(...new Uint8Array(arrayBuffer))
     );
@@ -68,7 +166,6 @@ export default function Dashboard() {
       xhr.open('POST', '/api/messages');
       xhr.setRequestHeader('Content-Type', 'application/json');
 
-      // Track upload progress
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable)
           setSendingProgress((e.loaded / e.total) * 100);
@@ -78,7 +175,7 @@ export default function Dashboard() {
         if (xhr.status === 201) {
           setAudioChunks([]);
           setSendingProgress(100);
-          await fetchMessages();
+          await fetchMessages(user);
         } else {
           console.error('Failed to send message:', xhr.responseText);
         }
@@ -87,7 +184,7 @@ export default function Dashboard() {
       xhr.onerror = () => console.error('Network error during sending');
       xhr.send(
         JSON.stringify({
-          userLink: user.userLink,
+          userLink: user.userLink, // anonymous
           audioBase64: base64Audio,
         })
       );
@@ -96,38 +193,42 @@ export default function Dashboard() {
     }
   };
 
-  // ---------------- Render ----------------
+  // ---------------- Create Vault ----------------
+  const createVault = async () => {
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'AnonymousUser' }),
+      });
+      if (!res.ok) throw new Error('Failed to create vault');
 
-  // If no user vault, show Create Vault button
+      const newUser = await res.json();
+      localStorage.setItem('voiceVaultUser', JSON.stringify(newUser));
+      setUser(newUser);
+
+      await fetchMessages(newUser);
+    } catch (err) {
+      console.error('Error creating vault:', err);
+      alert('Failed to create vault. Try again.');
+    }
+  };
+
+  // ---------------- Render ----------------
+  if (loadingUser)
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
+        Loading dashboard...
+      </div>
+    );
+
   if (!user)
     return (
-      <div
-        style={{
-          padding: 20,
-          textAlign: 'center',
-          color: '#555',
-        }}
-      >
+      <div style={{ padding: 20, textAlign: 'center', color: '#555' }}>
         No vault found.
         <br />
         <button
-          onClick={async () => {
-            try {
-              const res = await fetch('/api/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: 'AnonymousUser' }),
-              });
-              const newUser = await res.json();
-              localStorage.setItem(
-                'voiceVaultUser',
-                JSON.stringify(newUser)
-              );
-              setUser(newUser);
-            } catch (err) {
-              console.error('Error creating vault:', err);
-            }
-          }}
+          onClick={createVault}
           style={{
             marginTop: 10,
             padding: '8px 16px',
@@ -222,7 +323,7 @@ export default function Dashboard() {
 
       {/* Conversation Feed */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {messages.map((m) => (
+{messages.map((m) => (
           <div
             key={m.id}
             style={{
@@ -235,7 +336,10 @@ export default function Dashboard() {
               gap: 10,
             }}
           >
-            <span style={{ fontSize: 12, color: '#888' }}>{m.user}</span>
+            {/* Anonymous label */}
+            <span style={{ fontSize: 12, color: '#888' }}>Anonymous</span>
+            
+            {/* Audio player */}
             <audio
               ref={audioRef}
               controls
