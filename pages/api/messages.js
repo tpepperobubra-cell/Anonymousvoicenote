@@ -3,19 +3,18 @@ import fs from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
 
-// Helper: Convert Base64 to robotic audio
+// Convert Base64 audio to robotic effect
 function makeRobotic(base64Audio) {
   const inputPath = path.join(process.cwd(), 'tmp_input.webm');
   const outputPath = path.join(process.cwd(), 'tmp_robotic.webm');
 
   fs.writeFileSync(inputPath, Buffer.from(base64Audio, 'base64'));
 
-  // Apply robotic effect with ffmpeg
+  // ffmpeg robotic effect
   execSync(`ffmpeg -y -i ${inputPath} -af "asetrate=44100*1.3,aresample=44100,atempo=1.0" ${outputPath}`);
 
   const roboticBuffer = fs.readFileSync(outputPath);
 
-  // Clean up temp files
   fs.unlinkSync(inputPath);
   fs.unlinkSync(outputPath);
 
@@ -30,7 +29,6 @@ export default function handler(req, res) {
     const user = getUserByLink(userLink);
     if (!user) return res.status(404).json({ error: 'recipient not found' });
 
-    // Convert audio to robotic
     const roboticBase64 = makeRobotic(audioBase64);
 
     const message = addMessage({
@@ -57,7 +55,7 @@ export default function handler(req, res) {
       duration: m.duration,
       createdAt: m.createdAt,
       url: `/api/messages/${m.id}`,
-      user: 'Anonymous'  // keep messages anonymous
+      user: 'Anonymous'
     }));
 
     return res.status(200).json(rows);
