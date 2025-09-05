@@ -1,35 +1,26 @@
-import { PrismaClient } from '@prisma/client';
-import { nanoid } from 'nanoid';
+// In-memory store for users
+let users = [];
 
-const prisma = new PrismaClient();
-
-export default async function handler(req, res) {
-  if (req.method === 'POST') {
-    try {
-      const { username } = req.body;
-      if (!username) return res.status(400).json({ error: 'username required' });
-
-      const userLink = `anonymous-${nanoid(8)}`;
-
-      const user = await prisma.user.create({
-        data: {
-          username,
-          userLink,
-        },
-      });
-
-      res.json(user);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'failed to create vault' });
-    }
-  } else if (req.method === 'GET') {
-    const { link } = req.query;
-    const user = await prisma.user.findUnique({ where: { userLink: link } });
-    if (!user) return res.status(404).json({ error: 'not found' });
-    res.json(user);
-  } else {
-    res.setHeader('Allow', ['GET', 'POST']);
-    res.status(405).end();
+export default function handler(req, res) {
+  if (req.method === 'GET') {
+    return res.status(200).json(users);
   }
+
+  if (req.method === 'POST') {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const user = {
+      id: Date.now().toString(),
+      name,
+      createdAt: new Date().toISOString()
+    };
+
+    users.push(user);
+    return res.status(201).json(user);
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
 }
