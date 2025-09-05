@@ -1,22 +1,18 @@
 {
-  "name": "anonymous-voice-notes",
+  "name": "voicevault-next",
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3000",
     "lint": "next lint"
   },
   "dependencies": {
-    "@vercel/postgres": "^0.9.0",
-    "nanoid": "^5.0.4",
-    "next": "14.2.5",
+    "@vercel/postgres": "^1.7.0",
+    "nanoid": "^4.0.0",
+    "next": "13.5.6",
     "react": "18.2.0",
     "react-dom": "18.2.0"
-  },
-  "devDependencies": {
-    "eslint": "8.57.0",
-    "eslint-config-next": "14.2.5"
   }
 }
