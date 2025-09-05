@@ -1,18 +1,16 @@
-# VoiceVault (Next.js)
+# VoiceVault (Next.js + Vercel Postgres)
 
-Anonymous voice messages app — Next.js full-stack version.
+Anonymous voice notes — full-stack Next.js app designed for Vercel.
 
-Run locally:
+## Features
+- Create a Vault (unique `user_link`) and receive `admin_token` stored locally.
+- Record in browser, apply simple anonymization (pitch shift), send as base64 to server.
+- Vault owner dashboard: list, play, delete, and share messages. Share captures playing audio.
+- Uses `@vercel/postgres` for persistence — no native modules.
+
+## Setup (local)
 1. `npm install`
-2. `npm run dev`
-3. Open http://localhost:3000
-
-Features:
-- Create Vault (unique link + admin token)
-- Record in browser and apply simple anonymization (pitch shift)
-- Send anonymous voice messages to a vault
-- Vault owner lists & plays messages
-- **Share** button records the playing audio (preferred: audio capture via audioElement.captureStream; fallback: screen capture) and lets user download or share
-
-Deploy:
-- Works on Vercel (serverless functions may need adjustments for SQLite; consider using a managed DB for production).
+2. Setup Postgres and set `POSTGRES_URL` environment variable (or add Vercel Postgres).
+3. Run migrations:
+   ```bash
+   psql "$POSTGRES_URL" -f migrations/schema.sql
