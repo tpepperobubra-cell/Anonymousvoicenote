@@ -1,57 +1,87 @@
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+const VoiceRecorder = dynamic(() => import('../components/VoiceRecorder'), { ssr: false });
 
 export default function Home() {
-  const [name, setName] = useState('');
-  const [users, setUsers] = useState([]);
-  const router = useRouter();
+  const [recipientLink, setRecipientLink] = useState('');
+  const [recipient, setRecipient] = useState(null);
+  const [status, setStatus] = useState('');
+  const [offerVault, setOfferVault] = useState(true); // offer create vault prompt
 
   useEffect(() => {
-    fetch('/api/users')
-      .then((res) => res.json())
-      .then(setUsers);
+    // show prompt by default once
+    const seen = localStorage.getItem('offerVaultSeen');
+    if (!seen) setOfferVault(true);
+    else setOfferVault(false);
   }, []);
 
-  const handleCreateUser = async () => {
-    if (!name) return alert('Enter a name');
-    const res = await fetch('/api/users', {
+  async function findRecipient() {
+    if (!recipientLink) return alert('Enter recipient link (e.g. anonymous-abc123)');
+    setStatus('Looking up recipient...');
+    const res = await fetch(`/api/users?link=${encodeURIComponent(recipientLink)}`);
+    if (!res.ok) {
+      setStatus('Recipient not found');
+      setRecipient(null);
+      return;
+    }
+    const u = await res.json();
+    setRecipient(u);
+    setStatus('');
+  }
+
+  async function sendHandler(base64) {
+    if (!recipient) return alert('No recipient selected');
+    setStatus('Sending message...');
+    const res = await fetch('/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ userLink: recipient.userLink, audioBase64: base64 })
     });
-    const user = await res.json();
-    router.push(`/dashboard?userId=${user.id}`);
-  };
+    if (!res.ok) {
+      setStatus('Failed to send');
+      alert('Failed to send message');
+      return;
+    }
+    setStatus('Message sent — anonymous!');
+    setRecipient(null);
+    setRecipientLink('');
+  }
+
+  function openDashboardPrompt() {
+    const ok = confirm('Would you like to create your own Vault to receive anonymous notes? This will store a local admin token in your browser so you can manage messages. No account required.');
+    if (!ok) return;
+    // redirect to dashboard to create vault
+    window.location.href = '/dashboard';
+  }
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>🎙️ VoiceVault</h1>
-      <p>Anonymous voice notes made simple & private.</p>
+    <div className="container">
+      <div className="header">
+        <div className="logo">🎤 VoiceVault</div>
+        <div className="subtitle">Send anonymous voice notes — no account required</div>
+      </div>
 
-      <input
-        type="text"
-        placeholder="Enter your nickname"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        style={styles.input}
-      />
-      <button onClick={handleCreateUser} style={styles.button}>
-        Continue
-      </button>
+      <div className="glass">
+        <h2>Send Anonymous Voice Note</h2>
+        <div className="row" style={{marginTop:8}}>
+          <input className="input" placeholder="recipient link (e.g. anonymous-abc123)" value={recipientLink} onChange={(e)=>setRecipientLink(e.target.value)} />
+          <button className="btn btn-primary" onClick={findRecipient}>Find</button>
+        </div>
 
-      <h2 style={{ marginTop: '2rem' }}>Recent Users</h2>
-      <ul>
-        {users.map((u) => (
-          <li key={u.id}>{u.name} (joined {new Date(u.createdAt).toLocaleString()})</li>
-        ))}
-      </ul>
+        {recipient && (
+          <div style={{marginTop:12}}>
+            <div className="small">Sending to <strong>@{recipient.username}</strong></div>
+            <VoiceRecorder recipientLink={recipient.userLink} onSent={sendHandler} />
+          </div>
+        )}
+
+        <div style={{marginTop:12}} className="small center">{status}</div>
+      </div>
+
+      <div className="glass center">
+        <div className="small">Want to receive anonymous notes? <button className="btn btn-ghost" onClick={openDashboardPrompt}>Create your Vault</button></div>
+        <div className="small" style={{marginTop:8}}>Emphasis on anonymity — we do not require an account. Messages are anonymized in your browser before upload.</div>
+      </div>
     </div>
   );
 }
-
-const styles = {
-  container: { maxWidth: 600, margin: '0 auto', padding: '2rem', textAlign: 'center' },
-  title: { fontSize: '2.5rem', marginBottom: '1rem' },
-  input: { padding: '0.5rem', marginRight: '1rem', width: '70%' },
-  button: { padding: '0.5rem 1rem', background: 'black', color: 'white', border: 'none' }
-};
