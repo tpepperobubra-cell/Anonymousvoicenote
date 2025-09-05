@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@vercel/postgres": "^1.7.0",
+    "@vercel/postgres": "latest",
     "nanoid": "^4.0.0",
     "next": "13.5.6",
     "react": "18.2.0",
