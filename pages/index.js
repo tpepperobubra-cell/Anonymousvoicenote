@@ -1,84 +1,33 @@
-import React, { useState, useRef } from 'react';
+import { useState } from "react";
 
-export default function VoiceRecorder({ recipientLink, onSent }) {
-  const [recording, setRecording] = useState(false);
-  const [base64, setBase64] = useState('');
-  const [progress, setProgress] = useState(0);
+export default function Home() {
+  const [vault, setVault] = useState(null);
 
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-
-  const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRecorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = mediaRecorder;
-
-    mediaRecorder.ondataavailable = e => audioChunksRef.current.push(e.data);
-    mediaRecorder.onstop = async () => {
-      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      audioChunksRef.current = [];
-      const base64Data = await blobToBase64(blob);
-      setBase64(base64Data);
-    };
-
-    mediaRecorder.start();
-    setRecording(true);
-  };
-
-  const stopRecording = () => {
-    mediaRecorderRef.current.stop();
-    setRecording(false);
-  };
-
-  const blobToBase64 = blob =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
+  const createVault = async () => {
+    const res = await fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Anonymous" })
     });
-
-  const sendRecording = async () => {
-    if (!base64) return alert('No recording to send!');
-
-    setProgress(0);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/messages', true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) setProgress((e.loaded / e.total) * 100);
-    };
-
-    xhr.onload = () => {
-      if (xhr.status === 201) {
-        setBase64('');
-        setProgress(100);
-        if (onSent) onSent(base64); // call parent sendHandler
-      } else {
-        alert('Failed to send message!');
-      }
-      setTimeout(() => setProgress(0), 1000);
-    };
-
-    xhr.send(JSON.stringify({
-      userLink: recipientLink,
-      audioBase64: base64,
-      mime: 'audio/webm'
-    }));
+    const data = await res.json();
+    setVault(data);
   };
 
   return (
-    <div>
-      <div style={{ marginBottom: 8 }}>
-        {!recording ? (
-          <button className="btn btn-primary" onClick={startRecording}>Record</button>
-        ) : (
-          <button className="btn btn-warning" onClick={stopRecording}>Stop</button>
-        )}
-        <button className="btn btn-success" onClick={sendRecording} disabled={!base64}>Send</button>
-      </div>
-      {progress > 0 && <progress value={progress} max="100" style={{ width: '100%' }} />}
+    <div style={{ padding: "20px" }}>
+      {!vault ? (
+        <div>
+          <h2>Welcome to Anonymous Voice Notes 🔒</h2>
+          <p>Create your own vault to receive anonymous voice notes.</p>
+          <button onClick={createVault}>Create My Vault</button>
+        </div>
+      ) : (
+        <div>
+          <h3>Your Vault Created 🎉</h3>
+          <p>Share this link with friends:</p>
+          <code>{`${typeof window !== "undefined" ? window.location.origin : ""}/vault/${vault.id}`}</code>
+        </div>
+      )}
     </div>
   );
 }
