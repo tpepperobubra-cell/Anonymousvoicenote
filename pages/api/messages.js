@@ -1,87 +1,24 @@
-/**
- * messages.js – Backend + Frontend Integration for VoiceVault
- * Features:
- * 1. Record voice in browser
- * 2. Convert to robotic voice on server
- * 3. Send via POST with progress bar
- * 4. Dashboard fetches messages anonymously
- */
+import { getMessages, addMessage, getUserById } from "../../lib/store";
 
-import { addMessage, getUserByLink, listMessagesForUser } from '../../lib/store';
-import fs from 'fs';
-import { execSync } from 'child_process';
-import path from 'path';
-
-export default async function handler(req, res) {
-  // ---------------------- POST: Add message ----------------------
-  if (req.method === 'POST') {
-    const { userLink, audioBase64, mime = 'audio/webm', duration = null } =
-      req.body || {};
-
-    if (!userLink || !audioBase64)
-      return res.status(400).json({ error: 'userLink and audioBase64 required' });
-
-    const user = await getUserByLink(userLink);
-    if (!user)
-      return res.status(404).json({ error: 'recipient not found' });
-
-    // Convert audio to robotic
-    const roboticBase64 = makeRobotic(audioBase64);
-
-    // Store message
-    const message = addMessage({
-      userLink: user.userLink,
-      audioBase64: roboticBase64,
-      mime,
-      duration,
-    });
-
-    return res.status(201).json({ id: message.id, createdAt: message.createdAt });
+export default function handler(req, res) {
+  if (req.method === "GET") {
+    return res.status(200).json(getMessages());
   }
 
-  // ---------------------- GET: List messages ----------------------
-  if (req.method === 'GET') {
-    const { userLink, adminToken } = req.query;
+  if (req.method === "POST") {
+    const { content, userId } = req.body;
+    if (!content || !userId) {
+      return res.status(400).json({ error: "Content and userId are required" });
+    }
 
-    if (!userLink || !adminToken)
-      return res.status(400).json({ error: 'userLink & adminToken required' });
+    const user = getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "Recipient not found. Create a vault first." });
+    }
 
-    const user = await getUserByLink(userLink);
-    if (!user) return res.status(404).json({ error: 'user not found' });
-    if (user.adminToken !== adminToken)
-      return res.status(403).json({ error: 'invalid admin token' });
-
-    const rows = listMessagesForUser(userLink).map((m) => ({
-      id: m.id,
-      mime: m.mime,
-      duration: m.duration,
-      createdAt: m.createdAt,
-      url: `/api/messages/${m.id}`,
-      user: 'Anonymous', // hide username
-    }));
-
-    return res.status(200).json(rows);
+    const msg = addMessage(content, userId);
+    return res.status(201).json(msg);
   }
 
-  res.setHeader('Allow', ['GET', 'POST']);
-  res.status(405).end();
-}
-
-// ---------------------- Helper: Robotic Audio ----------------------
-function makeRobotic(base64Audio) {
-  const inputPath = path.join(process.cwd(), 'tmp_input.webm');
-  const outputPath = path.join(process.cwd(), 'tmp_robotic.webm');
-
-  fs.writeFileSync(inputPath, Buffer.from(base64Audio, 'base64'));
-
-  execSync(
-    `ffmpeg -y -i ${inputPath} -af "asetrate=44100*1.3,aresample=44100,atempo=1.0" ${outputPath}`
-  );
-
-  const roboticBuffer = fs.readFileSync(outputPath);
-
-  fs.unlinkSync(inputPath);
-  fs.unlinkSync(outputPath);
-
-  return roboticBuffer.toString('base64');
+  return res.status(405).json({ error: "Method not allowed" });
 }
