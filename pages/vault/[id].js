@@ -9,11 +9,12 @@ export default function VaultPage() {
 
   const handleSave = async (audioBlob) => {
     const base64 = await blobToBase64(audioBlob);
+    const dataUri = `data:audio/webm;base64,${base64}`;
 
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: base64, userId: id })
+      body: JSON.stringify({ content: dataUri, userId: id })
     });
 
     if (res.ok) {
@@ -32,7 +33,6 @@ export default function VaultPage() {
     });
   };
 
-  // Screen recording share
   const shareNote = async () => {
     const audio = document.querySelector("audio");
     if (!audio) return alert("Play a voice note first!");
@@ -62,11 +62,13 @@ export default function VaultPage() {
   };
 
   return (
-    <div style={{ padding: "20px" }}>
+    <div className="container">
       <h2>Send an Anonymous Voice Note 🎤</h2>
-      <VoiceRecorder onSave={handleSave} />
-      <p>{status}</p>
-      <button onClick={shareNote}>📤 Share Played Note</button>
+      <div className="card">
+        <VoiceRecorder onSave={handleSave} />
+        <p className="status">{status}</p>
+        <button className="btn share" onClick={shareNote}>📤 Share Played Note</button>
+      </div>
     </div>
   );
 }
