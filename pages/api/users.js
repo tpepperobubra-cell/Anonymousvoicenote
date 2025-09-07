@@ -1,28 +1,17 @@
-import { createUser, getUserByLink } from '../../lib/store';
+import { getUsers, addUser } from "../../lib/store";
 
 export default function handler(req, res) {
-  if (req.method === 'POST') {
-    const { username } = req.body || {};
-    if (!username || username.trim() === '') {
-      return res.status(400).json({ error: 'username required' });
-    }
-    const user = createUser(username);
+  if (req.method === "GET") {
+    return res.status(200).json(getUsers());
+  }
+
+  if (req.method === "POST") {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Name is required" });
+
+    const user = addUser(name);
     return res.status(201).json(user);
   }
 
-  if (req.method === 'GET') {
-    let { link } = req.query;
-    if (!link) return res.status(400).json({ error: 'link required' });
-    const user = getUserByLink(link);
-    if (!user) return res.status(404).json({ error: 'not found' });
-    return res.status(200).json({
-      id: user.id,
-      username: user.username,
-      userLink: user.userLink,
-      createdAt: user.createdAt
-    });
-  }
-
-  res.setHeader('Allow', ['GET','POST']);
-  res.status(405).end();
+  return res.status(405).json({ error: "Method not allowed" });
 }
